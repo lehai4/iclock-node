@@ -40,6 +40,16 @@ curl -X POST "http://may-chu:PORT/admin/backfill?SN=2017173760763&start=2026-08-
 
 Lưu ý: hàng đợi lệnh nằm trong bộ nhớ (RAM) của tiến trình Node — **mất hết nếu restart server** trước khi máy kịp poll. Nếu vậy chỉ cần gọi lại `/admin/backfill` một lần nữa là được, không cần thao tác gì trên máy chấm công.
 
+## Tự động bù dữ liệu gần đây (không cần bấm tay)
+
+Ngoài backfill thủ công (khoảng thời gian tuỳ chỉnh, gọi tay) ở trên, `getrequest.js` còn tự động gửi lệnh `DATA QUERY ATTLOG` cho **N ngày gần nhất** theo định kỳ, để tự "vét" lại dữ liệu nếu server bị mất kết nối/tắt một lúc mà không cần ai phải nhớ gọi API. Dữ liệu trùng vẫn được chặn an toàn bởi unique constraint như bình thường (xem `logs/attendance_log.txt`, cột `trung`).
+
+Cấu hình qua `.env`:
+
+- `AUTO_BACKFILL_ENABLED=true` — bật/tắt tính năng này.
+- `AUTO_BACKFILL_DAYS=30` — số ngày gần nhất sẽ yêu cầu máy gửi lại mỗi lần tự động bù.
+- `AUTO_BACKFILL_INTERVAL_MINUTES=1440` (mặc định 1 ngày/lần) — **không nên đặt quá ngắn**. Mỗi lần lệnh này được gửi, máy phải đọc lại toàn bộ log nội bộ trong `AUTO_BACKFILL_DAYS` ngày và đẩy hết lên server — công ty đông người có thể là hàng chục nghìn dòng. Dù không tạo dữ liệu trùng nhưng vẫn tốn băng thông, CPU máy chấm công, và hàng loạt lượt INSERT-thất-bại trên SQL Server nếu lặp lại quá thường xuyên. 1 lần/ngày là mức an toàn — kết hợp với việc **lần poll đầu tiên sau mỗi lần restart server luôn được bù ngay lập tức** (không đợi cooldown, vì bộ đếm nằm trong RAM), nên trường hợp server bị down rồi bật lại vẫn được xử lý ngay mà không cần tăng tần suất.
+
 ## Đồng bộ giờ tự động
 
 Máy chấm công này từng bị lệch giờ (quan sát được ~1 tiếng ở lần kiểm tra trước). `getrequest.js` giờ chủ động gửi lệnh `SET OPTIONS DateTime=...` (đúng giờ Việt Nam) xuống máy — lệnh này đã test và được máy ACK `Return=0` (thành công), xem `logs/devicecmd_log.txt`.
