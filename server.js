@@ -3,6 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { vnTimeString, appendLog } = require('./logger');
+const { recordSeen } = require('./knownDevices');
+const { startScheduler } = require('./monthlyCleanup');
 
 const app = express();
 app.disable('x-powered-by');
@@ -24,6 +26,9 @@ app.use((req, res, next) => {
     `[${vnTimeString()}] ${req.method} ${req.originalUrl}` +
     ` | body_len=${bodyStr.length} | body_preview=${JSON.stringify(bodyStr.slice(0, 200))}`;
   appendLog('request_debug_log.txt', line);
+  // Ghi nho SN may cham cong (neu co) de cac tac vu tu dong (vd don dep
+  // hang thang) biet phai gui lenh cho may nao - xem knownDevices.js.
+  if (req.query && req.query.SN) recordSeen(String(req.query.SN));
   next();
 });
 
@@ -46,6 +51,9 @@ app.use('/admin/ui', express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.type('text/plain').send('iClock Node server dang chay');
 });
+
+// Bat lich tu dong don dep du lieu thang truoc (xem monthlyCleanup.js).
+startScheduler();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {

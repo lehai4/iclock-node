@@ -86,6 +86,16 @@ router.all('/', async (req, res) => {
       ` | nhan=${receivedCount} moi=${successCount} trung=${duplicateCount} loi=${errorCount}` +
       (dbConnectFailed ? ' | KHONG KET NOI DUOC SQL SERVER' : '');
     appendLog('attendance_log.txt', summary);
+  } else if (table && table !== 'ATTLOG' && postData.trim() !== '') {
+    // Bat ky bang nao khac ATTLOG may gui len (vd USERINFO, FP/FINGERTMP,
+    // OPERLOG...) - ghi NGUYEN VAN (khong cat bot) vao logs/rawdata.log de
+    // sau nay xem dinh dang that va dung lam backup. request_debug_log.txt
+    // chi luu 200 ky tu dau nen khong du de backup du lieu that (vd van tay).
+    const raw =
+      `[${vnTimeString()}] SN=${sn} ip=${clientIP} table=${table} len=${postData.length}\n` +
+      postData +
+      '\n---';
+    appendLog('rawdata.log', raw);
   }
 
   // Quan trong: luon tra ve chu OK de may cham cong biet server da xu ly xong

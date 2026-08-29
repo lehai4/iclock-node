@@ -81,3 +81,43 @@ Cách debug nhanh khi nghi ngờ "chấm công không vào DB": mở 2 terminal,
 - Cần tạo bảng `HRM_AttendanceLog` sẵn trên SQL Server (không có trong repo gốc, server chỉ insert vào bảng có sẵn).
 - Thông tin kết nối DB nên đặt qua `.env` (không hardcode như `db.php` gốc) — nhớ đừng commit file `.env` thật.
 - Muốn dùng lại reverse-proxy/route như `.htaccess` (ví dụ chạy sau Nginx/IIS) thì trỏ `/iclock/*` về server Node này (mặc định cổng lấy từ biến `PORT`).
+
+## Tự động dọn dữ liệu (ngày 15 hàng tháng)
+
+Vào ngày `MONTHLY_CLEANUP_DAY` hàng tháng (mặc định 15, đổi qua `.env`), server tự động xóa dữ liệu của **tháng trước tháng trước liền kề** (lùi 2 tháng so với hiện tại), **không phải tháng trước liền kề**. Ví dụ hôm nay 15/08/2026: tháng 7 (tháng trước liền kề) được **giữ nguyên**, chỉ tháng 6 bị xóa — lý do: bộ phận nhân sự có thể còn cần dữ liệu tháng trước liền kề để chốt công ngay cả sau ngày 15 (chốt trễ).
+
+Cụ thể server tự động:
+
+1. Xuất toàn bộ `HRM_AttendanceLog` của **tháng trước** ra file CSV trong `MONTHLY_CLEANUP_BACKUP_DIR` (mặc định `./backups/HRM_AttendanceLog_YYYY-MM.csv`).
+2. `DELETE` các dòng đó khỏi SQL Server.
+
+3. Xếp lệnh `DATA DELETE ATTLOG StartTime=...\tEndTime=...` cho **mọi máy chấm công đã từng kết nối** (danh sách SN tự ghi nhận vào `known_devices.json`) — lệnh này được gửi ở lần `/iclock/getrequest` kế tiếp của từng máy.
+
+**Đã bật lại bước 3** sau khi test thủ công qua `/admin/cleanup/test-device-command` và xác nhận User/FP/Face/Card Count trên máy không đổi (chỉ Att Log Count giảm đúng phạm vi). Nếu sau này thấy dấu hiệu bất thường (mất vân tay/người dùng), quay lại comment đoạn `queueDeviceDeleteCommand` trong `monthlyCleanup.js` để tắt bước này ngay.
+
+Toàn bộ quá trình ghi log vào `logs/cleanup_log.txt`.
+
+**Muốn tự tay test lệnh xóa trên máy (không tự động)**, vẫn dùng được route dưới đây bất cứ lúc nào — **bắt buộc phải ghi lại User Count / FP Count / Face Count / Card Count trên màn hình máy TRƯỚC và SAU khi gọi**, chỉ Att Log Count được phép đổi:
+
+**Trước khi tin tưởng chạy tự động, hãy test riêng lệnh xóa trên máy** (không đụng gì tới DB):
+
+```bash
+curl -X POST "http://may-chu:PORT/admin/cleanup/test-device-command?SN=<serial>&month=2026-07"
+```
+
+Đợi máy poll xong (vài chục giây), xem `logs/devicecmd_log.txt` để biết máy trả `Return=0` (thành công) hay lỗi/không hiểu lệnh — đối chiếu thêm với số lượng bản ghi hiển thị trên màn hình máy để chắc chắn.
+
+Muốn chạy thử toàn bộ (backup + xóa DB thật + xếp lệnh cho máy) ngay lập tức thay vì đợi ngày 15:
+
+```bash
+curl -X POST "http://may-chu:PORT/admin/cleanup/run?confirm=yes&month=2026-07"
+```
+
+Các endpoint hỗ trợ khác:
+
+| Route | Chức năng |
+|---|---|
+| `GET /admin/cleanup/known-devices` | Xem danh sách SN máy đã từng kết nối |
+| `GET /admin/cleanup/status` | Xem tháng đã dọn gần nhất |
+
+**Lưu ý khi mới bật tính năng này**: nếu hôm nay đã qua ngày `MONTHLY_CLEANUP_DAY` của tháng hiện tại, server sẽ chạy dọn dẹp **ngay khi khởi động** (không đợi đến ngày 15 lần sau) cho tháng trước đó, vì `cleanup_state.json` chưa ghi nhận đã chạy. Nếu muốn kiểm tra lệnh xóa trên máy trước, hãy đặt tạm `MONTHLY_CLEANUP_ENABLED=false` trong `.env`, khởi động server, gọi `/admin/cleanup/test-device-command` để test, rồi mới đặt lại `true` và khởi động lại.
